@@ -33,6 +33,14 @@ NUMERIC_COLUMNS = [
     "thermal_throttling_events", "cpu_usage_pct","memory_usage_pct","io_wait_pct"
 ]
 
+# Fraction of total rows to replace with each anomaly scenario
+ANOMALY_FRACTIONS = {
+    "disk_bottleneck": 0.06,     # latency high + io_wait high
+    "cpu_bottleneck": 0.06,      # latency high + cpu high
+    "memory_pressure": 0.05,     # latency high + memory high
+    "suspicious_unknown": 0.04,  # latency high, all other signals normal
+}
+
 WRONG_TYPE_TOKENS = ["error","N/A","bad_data","null",""]
 
 INVALID_DEVICE_NAMES = ["iphone??","unknown","", "123"]
@@ -98,6 +106,72 @@ def generate_data(rng, runs_per_group, rows_per_group):
 
 
 # =========================
+# ANOMALY INJECTION
+# =========================
+
+def inject_anomaly_scenarios(df: pd.DataFrame, rng) -> pd.DataFrame:
+    """
+    Overwrite a fraction of rows with realistic anomaly scenarios so that the
+    root cause engine has meaningful signal to classify.
+
+    Each scenario sets latency_write_p99_ms well above the 80 ms threshold and
+    then raises the co-occurring signal that defines the root cause label:
+
+        disk_bottleneck    — latency > 80 ms  +  io_wait > 20 %
+        cpu_bottleneck     — latency > 80 ms  +  cpu > 85 %
+        memory_pressure    — latency > 80 ms  +  memory > 85 %
+        suspicious_unknown — latency > 80 ms  +  all others normal
+
+    The rows are chosen randomly so scenarios are spread across device groups
+    and timestamps, making the dataset representative rather than clustered.
+    """
+    out = df.copy()
+    n = len(out)
+    available = set(out.index.tolist())
+
+    def sample_idx(frac):
+        size = max(1, int(n * frac))
+        chosen = rng.choice(sorted(available), size=min(size, len(available)), replace=False)
+        available.difference_update(chosen)
+        return chosen
+
+    # --- disk_bottleneck ---
+    idx = sample_idx(ANOMALY_FRACTIONS["disk_bottleneck"])
+    out.loc[idx, "latency_write_p99_ms"] = rng.uniform(85, 180, len(idx))
+    out.loc[idx, "latency_read_p99_ms"]  = rng.uniform(60, 140, len(idx))
+    out.loc[idx, "io_wait_pct"]          = rng.uniform(22, 55,  len(idx))
+    out.loc[idx, "cpu_usage_pct"]        = rng.uniform(30, 70,  len(idx))
+    out.loc[idx, "memory_usage_pct"]     = rng.uniform(40, 80,  len(idx))
+    out.loc[idx, "nvme_queue_depth"]     = rng.uniform(25, 64,  len(idx))
+
+    # --- cpu_bottleneck ---
+    idx = sample_idx(ANOMALY_FRACTIONS["cpu_bottleneck"])
+    out.loc[idx, "latency_write_p99_ms"] = rng.uniform(85, 160, len(idx))
+    out.loc[idx, "latency_read_p99_ms"]  = rng.uniform(60, 120, len(idx))
+    out.loc[idx, "cpu_usage_pct"]        = rng.uniform(88, 100, len(idx))
+    out.loc[idx, "io_wait_pct"]          = rng.uniform(2,  15,  len(idx))
+    out.loc[idx, "memory_usage_pct"]     = rng.uniform(40, 80,  len(idx))
+
+    # --- memory_pressure ---
+    idx = sample_idx(ANOMALY_FRACTIONS["memory_pressure"])
+    out.loc[idx, "latency_write_p99_ms"] = rng.uniform(85, 150, len(idx))
+    out.loc[idx, "latency_read_p99_ms"]  = rng.uniform(60, 110, len(idx))
+    out.loc[idx, "memory_usage_pct"]     = rng.uniform(88, 100, len(idx))
+    out.loc[idx, "cpu_usage_pct"]        = rng.uniform(30, 70,  len(idx))
+    out.loc[idx, "io_wait_pct"]          = rng.uniform(2,  15,  len(idx))
+
+    # --- suspicious_unknown ---
+    idx = sample_idx(ANOMALY_FRACTIONS["suspicious_unknown"])
+    out.loc[idx, "latency_write_p99_ms"] = rng.uniform(85, 200, len(idx))
+    out.loc[idx, "latency_read_p99_ms"]  = rng.uniform(60, 160, len(idx))
+    out.loc[idx, "cpu_usage_pct"]        = rng.uniform(10, 40,  len(idx))
+    out.loc[idx, "io_wait_pct"]          = rng.uniform(0,  8,   len(idx))
+    out.loc[idx, "memory_usage_pct"]     = rng.uniform(20, 60,  len(idx))
+
+    return out
+
+
+# =========================
 # DATA CORRUPTION
 # =========================
 
@@ -159,6 +233,7 @@ def main():
     rng = np.random.default_rng(args.seed)
 
     df = generate_data(rng, args.runs_per_group, args.rows_per_group)
+    df = inject_anomaly_scenarios(df, rng)
     df = corrupt_data(df, rng)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
