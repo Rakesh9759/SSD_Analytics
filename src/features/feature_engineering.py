@@ -1,9 +1,9 @@
 """
-Feature engineering for Apple SSD telemetry data.
+Feature engineering for SSD telemetry data.
 
 Produces derived columns that downstream anomaly detection and root cause
-analysis depend on.  All transformations are non-destructive — the input
-DataFrame is copied before any modifications.
+analysis depend on.
+
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def add_workload_behavior_features(telemetry_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Rolling / time-aware features  (Step 1.2)
+# Rolling / time-aware features 
 # ---------------------------------------------------------------------------
 
 def add_rolling_features(
@@ -109,10 +109,7 @@ def add_rolling_features(
     """
     telemetry_df = telemetry_df.copy()
 
-    has_ts = (
-        isinstance(telemetry_df.index, pd.DatetimeTZAware.__class__)
-        or pd.api.types.is_datetime64_any_dtype(telemetry_df.index)
-    )
+    has_ts = isinstance(telemetry_df.index, pd.DatetimeIndex)
 
     if not has_ts and "event_ts" in telemetry_df.columns:
         telemetry_df = telemetry_df.sort_values("event_ts")
@@ -131,8 +128,6 @@ def add_rolling_features(
     telemetry_df["rolling_std_iops"] = (
         telemetry_df["total_iops"].rolling(**roll_kwargs).std()
     )
-
-    # Burstiness: coefficient of variation of IOPS inside the window.
     telemetry_df["burstiness"] = (
         telemetry_df["rolling_std_iops"]
         / telemetry_df["rolling_mean_iops"].replace(0, np.nan)
@@ -140,10 +135,6 @@ def add_rolling_features(
 
     return telemetry_df
 
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
 
 def build_features(
     telemetry_df: pd.DataFrame,
