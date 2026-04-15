@@ -152,7 +152,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rows-per-group", type=int, default=100)
     parser.add_argument("--runs-per-group", type=int, default=2)
-    parser.add_argument("--output", type=Path, default=Path("data/generated/final_dataset.csv"))
+    parser.add_argument("--output", type=Path, default=Path("data/generated/corrupted_dataset.csv"))
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
