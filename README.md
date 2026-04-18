@@ -53,3 +53,81 @@ Default output:
 
 - ISO 8601 datetime format: https://www.iso.org/iso-8601-date-and-time-format.html
 - NVMe concepts (queue depth, latency, throughput): https://nvmexpress.org/specifications/
+
+
+The orchestration layer is implemented in `src/pipeline/dag.py` as an
+Airflow-style DAG skeleton with explicit stage functions.
+
+Stages:
+- `generate_data`
+- `corrupt_data`
+- `validate_data`
+- `clean_data`
+- `feature_engineering`
+- `anomaly_detection`
+- `root_cause`
+
+Run example:
+
+```bash
+python -m src.pipeline.dag --rows-per-group 100 --runs-per-group 2 --seed 42
+```
+
+Generated artifacts (under `data/generated/`):
+- `pipeline_raw_dataset.csv`
+- `pipeline_corrupted_dataset.csv`
+- `pipeline_cleaned_dataset.csv`
+- `pipeline_root_cause_output.csv`
+- `pipeline_dq_score_table.csv`
+- `pipeline_stage_metrics.csv`
+
+Architecture diagram (ASCII):
+
+```text
+				 +------------------------+
+				 | generate_data          |
+				 | (raw telemetry)        |
+				 +-----------+------------+
+							 |
+							 v
+				 +-----------+------------+
+				 | corrupt_data           |
+				 | + anomaly injection    |
+				 +-----------+------------+
+							 |
+							 v
+				 +-----------+------------+
+				 | validate_data          |
+				 | (DQ checks + scoring)  |
+				 +-----------+------------+
+							 |
+							 v
+				 +-----------+------------+
+				 | clean_data             |
+				 | (coerce + dedup + clip)|
+				 +-----------+------------+
+							 |
+							 v
+				 +-----------+------------+
+				 | feature_engineering    |
+				 | (derived telemetry)    |
+				 +-----------+------------+
+							 |
+							 v
+				 +-----------+------------+
+				 | anomaly_detection      |
+				 | (IF + multivariate z)  |
+				 +-----------+------------+
+							 |
+							 v
+				 +-----------+------------+
+				 | root_cause             |
+				 | (label + confidence)   |
+				 +-----------+------------+
+							 |
+							 v
+				 +-----------+------------+
+				 | CSV artifacts          |
+				 | in data/generated/     |
+				 +------------------------+
+```
